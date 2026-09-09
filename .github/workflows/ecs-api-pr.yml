@@ -206,7 +206,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up shared delivery scripts
-        uses: in2workspace/eudistack-devops-workflows/.github/actions/setup-scripts@main
+        uses: in2workspace/eudistack-devops-workflows/.github/actions/setup-scripts@3ab05aa7bea7a29077cc0ba27ea1993d5c63cdf5
 
       - name: Validate DAST configuration
         run: |

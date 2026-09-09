@@ -12,8 +12,8 @@
  * `.github/CODEOWNERS`.
  *
  * Usage:
- *   node scripts/license-gate.mjs --sbom-path build/reports/sbom/sbom.json
- *   node scripts/license-gate.mjs --sbom-path <path> --expect-version 1.4.0
+ *   node scripts/common/license-gate.mjs --sbom-path build/reports/sbom/sbom.json
+ *   node scripts/common/license-gate.mjs --sbom-path <path> --expect-version 1.4.0
  *
  * Exit codes: 0 = compliant, 1 = blocking violation or execution error.
  */

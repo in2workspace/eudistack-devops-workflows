@@ -118,7 +118,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up shared delivery scripts
-        uses: in2workspace/eudistack-devops-workflows/.github/actions/setup-scripts@main
+        uses: in2workspace/eudistack-devops-workflows/.github/actions/setup-scripts@3ab05aa7bea7a29077cc0ba27ea1993d5c63cdf5
 
       - name: Validate inputs and production endpoint
         run: |
@@ -241,13 +241,18 @@ jobs:
           fi
           STG_IMAGE="${ECR_REGISTRY_STG}/${STG_REPOSITORY}@${DIGEST}"
           if ! cosign verify \
-            --certificate-identity="https://github.com/in2workspace/eudistack-devops-workflows/.github/workflows/reusable-release.yml@refs/heads/main" \
+            --certificate-identity-regexp='^https://github\.com/in2workspace/eudistack-devops-workflows/\.github/workflows/ecs-api-release\.yml@[0-9a-f]{40}$' \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             "${STG_IMAGE}"; then
-            cosign verify \
-              --certificate-identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/reusable-release.yml@refs/heads/release/v${VERSION}" \
+            if ! cosign verify \
+              --certificate-identity="https://github.com/in2workspace/eudistack-devops-workflows/.github/workflows/reusable-release.yml@refs/heads/main" \
               --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-              "${STG_IMAGE}"
+              "${STG_IMAGE}"; then
+              cosign verify \
+                --certificate-identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/reusable-release.yml@refs/heads/release/v${VERSION}" \
+                --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+                "${STG_IMAGE}"
+            fi
           fi
           docker pull "${STG_IMAGE}"
           if gh release view "v${VERSION}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then

@@ -204,7 +204,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up shared delivery scripts
-        uses: in2workspace/eudistack-devops-workflows/.github/actions/setup-scripts@main
+        uses: in2workspace/eudistack-devops-workflows/.github/actions/setup-scripts@3ab05aa7bea7a29077cc0ba27ea1993d5c63cdf5
 
       - name: Require DEV smoke endpoint
         run: |
