@@ -1,0 +1,11 @@
+name: Set up EUDIStack delivery scripts
+description: Expose the shared delivery scripts to subsequent workflow steps
+
+runs:
+  using: composite
+  steps:
+    - name: Export scripts path
+      shell: bash
+      env:
+        SCRIPTS_PATH: ${{ github.action_path }}/../../../scripts
+      run: echo "EUDISTACK_DEVOPS_SCRIPTS=${SCRIPTS_PATH}" >> "${GITHUB_ENV}"
