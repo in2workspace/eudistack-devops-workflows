@@ -1,4 +1,4 @@
-name: reusable-deploy-pro
+name: ecs-api-deploy-pro
 
 on:
   workflow_call:
@@ -276,7 +276,7 @@ jobs:
         run: |
           CLUSTER="${PROJECT_NAME}-${ENVIRONMENT}-ecs-${REGION_CODE}"
           SERVICE="${PROJECT_NAME}-${ENVIRONMENT}-ecs-${REGION_CODE}-${APP_NAME}-service"
-          bash "${EUDISTACK_DEVOPS_SCRIPTS}/ecs-deployment.sh" inspect \
+          bash "${EUDISTACK_DEVOPS_ECS_API_SCRIPTS}/ecs-deployment.sh" inspect \
             "${CLUSTER}" \
             "${SERVICE}" \
             "${ECS_CONTAINER_NAME}" \
@@ -288,7 +288,7 @@ jobs:
           CURRENT_VERSION: ${{ steps.current-production.outputs.version }}
           CURRENT_DIGEST: ${{ steps.current-production.outputs.observed_digest }}
         run: |
-          node "${EUDISTACK_DEVOPS_SCRIPTS}/compare-release-version.mjs" \
+          node "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/compare-release-version.mjs" \
             "${CURRENT_VERSION}" \
             "${VERSION}" \
             fallback \
@@ -334,7 +334,7 @@ jobs:
       - name: Validate immutable production version tag
         run: |
           PRO_REPOSITORY="${PROJECT_NAME}-${ENVIRONMENT}-ecr-${REGION_CODE}-${APP_NAME}"
-          bash "${EUDISTACK_DEVOPS_SCRIPTS}/set-ecr-tags.sh" \
+          bash "${EUDISTACK_DEVOPS_ECS_API_SCRIPTS}/set-ecr-tags.sh" \
             "${PRO_REPOSITORY}" \
             "${DIGEST}" \
             "${{ secrets.AWS_REGION }}" \
@@ -344,7 +344,7 @@ jobs:
       - name: Register digest-pinned production task definition
         id: register-production
         run: |
-          bash "${EUDISTACK_DEVOPS_SCRIPTS}/ecs-deployment.sh" register \
+          bash "${EUDISTACK_DEVOPS_ECS_API_SCRIPTS}/ecs-deployment.sh" register \
             current-production-task-definition.json \
             "${ECS_CONTAINER_NAME}" \
             "${PRO_IMAGE}@${DIGEST}" \
@@ -375,7 +375,7 @@ jobs:
         run: |
           CLUSTER="${PROJECT_NAME}-${ENVIRONMENT}-ecs-${REGION_CODE}"
           SERVICE="${PROJECT_NAME}-${ENVIRONMENT}-ecs-${REGION_CODE}-${APP_NAME}-service"
-          bash "${EUDISTACK_DEVOPS_SCRIPTS}/ecs-deployment.sh" verify \
+          bash "${EUDISTACK_DEVOPS_ECS_API_SCRIPTS}/ecs-deployment.sh" verify \
             "${CLUSTER}" \
             "${SERVICE}" \
             "${ECS_CONTAINER_NAME}" \
@@ -386,7 +386,7 @@ jobs:
             "${{ secrets.AWS_REGION }}"
 
       - name: Run production smoke test
-        run: bash "${EUDISTACK_DEVOPS_SCRIPTS}/smoke.sh" "${SMOKE_URL}"
+        run: bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "${SMOKE_URL}"
 
       - name: Monitor production readiness
         run: |
@@ -394,7 +394,7 @@ jobs:
           for minute in $(seq 1 "${MONITOR_MINUTES}"); do
             sleep 60
             echo "Production readiness check ${minute}/${MONITOR_MINUTES}"
-            bash "${EUDISTACK_DEVOPS_SCRIPTS}/smoke.sh" "${SMOKE_URL}"
+            bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "${SMOKE_URL}"
           done
 
       - name: Roll back failed production deployment
@@ -412,25 +412,25 @@ jobs:
             --task-definition "${PREVIOUS_TASK_DEFINITION_ARN}" \
             --region "${{ secrets.AWS_REGION }}" \
             --no-cli-pager
-          bash "${EUDISTACK_DEVOPS_SCRIPTS}/ecs-deployment.sh" verify-runtime \
+          bash "${EUDISTACK_DEVOPS_ECS_API_SCRIPTS}/ecs-deployment.sh" verify-runtime \
             "${CLUSTER}" \
             "${SERVICE}" \
             "${ECS_CONTAINER_NAME}" \
             "${PREVIOUS_TASK_DEFINITION_ARN}" \
             "${PREVIOUS_DIGEST}" \
             "${{ secrets.AWS_REGION }}"
-          bash "${EUDISTACK_DEVOPS_SCRIPTS}/smoke.sh" "${SMOKE_URL}"
+          bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "${SMOKE_URL}"
 
       - name: Publish validated production tags
         run: |
           PRO_REPOSITORY="${PROJECT_NAME}-${ENVIRONMENT}-ecr-${REGION_CODE}-${APP_NAME}"
-          bash "${EUDISTACK_DEVOPS_SCRIPTS}/set-ecr-tags.sh" \
+          bash "${EUDISTACK_DEVOPS_ECS_API_SCRIPTS}/set-ecr-tags.sh" \
             "${PRO_REPOSITORY}" \
             "${DIGEST}" \
             "${{ secrets.AWS_REGION }}" \
             immutable \
             "v${VERSION}"
-          bash "${EUDISTACK_DEVOPS_SCRIPTS}/set-ecr-tags.sh" \
+          bash "${EUDISTACK_DEVOPS_ECS_API_SCRIPTS}/set-ecr-tags.sh" \
             "${PRO_REPOSITORY}" \
             "${DIGEST}" \
             "${{ secrets.AWS_REGION }}" \

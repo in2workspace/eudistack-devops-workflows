@@ -1,4 +1,4 @@
-name: reusable-codeql
+name: common-codeql-java
 
 on:
   workflow_call:

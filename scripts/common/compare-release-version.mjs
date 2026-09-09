@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 function fail(message) {
   console.error(`::error::${message}`);
   process.exit(1);

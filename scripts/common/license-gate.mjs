@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * License Gate — CycloneDX SBOM license compliance evaluator.
  *

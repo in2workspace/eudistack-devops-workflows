@@ -1,4 +1,4 @@
-name: reusable-license-gate
+name: common-license-gate
 
 on:
   workflow_call:
@@ -83,10 +83,10 @@ jobs:
           node-version: ${{ inputs.node_version }}
 
       - name: Verify the license gate itself
-        run: node --test "${EUDISTACK_DEVOPS_SCRIPTS}/license-gate.test.mjs"
+        run: node --test "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/license-gate.test.mjs"
 
       - name: Generate CycloneDX SBOM
         run: ${{ inputs.sbom_command }}
 
       - name: Evaluate licenses
-        run: node "${EUDISTACK_DEVOPS_SCRIPTS}/license-gate.mjs" --sbom-path "${{ inputs.sbom_path }}"
+        run: node "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/license-gate.mjs" --sbom-path "${{ inputs.sbom_path }}"

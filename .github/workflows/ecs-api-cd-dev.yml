@@ -1,4 +1,4 @@
-name: reusable-cd-dev
+name: ecs-api-cd-dev
 
 on:
   workflow_call:
@@ -259,7 +259,7 @@ jobs:
             --no-cli-pager
 
       - name: Run DEV smoke test
-        run: bash "${EUDISTACK_DEVOPS_SCRIPTS}/smoke.sh" "${SMOKE_URL}"
+        run: bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "${SMOKE_URL}"
 
       - name: Publish deployment summary
         run: |

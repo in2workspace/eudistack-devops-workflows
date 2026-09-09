@@ -1,4 +1,4 @@
-name: reusable-pr
+name: ecs-api-pr
 
 on:
   workflow_call:
@@ -260,7 +260,7 @@ jobs:
       # for pool membership, deliberately excluding smtp.
       - name: Wait for service health
         run: |
-          if ! bash "${EUDISTACK_DEVOPS_SCRIPTS}/smoke.sh" "${SMOKE_URL}"; then
+          if ! bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "${SMOKE_URL}"; then
             docker logs "${CONTAINER_NAME}"
             exit 1
           fi
