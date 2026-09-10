@@ -8,7 +8,10 @@ EUDIStack applications.
 ### Common
 
 - `common-codeql-java.yml` - CodeQL analysis for Java applications.
-- `common-license-gate.yml` - CycloneDX license-policy validation.
+- `common-codeql-javascript.yml` - CodeQL analysis for JavaScript and
+  TypeScript applications.
+- `common-license-gate.yml` - CycloneDX license-policy validation for Gradle
+  and npm projects.
 
 ### ECS APIs
 
@@ -36,8 +39,10 @@ EUDIStack applications.
   ordering policy, and idempotently completes production deployment and
   publication.
 
-The SPA family does not add centralized CodeQL or license gates. Consumers keep
-their existing repository-local SPA CodeQL and license workflows.
+SPA consumers call `common-codeql-javascript.yml` and
+`common-license-gate.yml` as sibling jobs next to `spa-pr.yml`, matching the
+ECS API caller pattern. npm consumers disable Java setup and provide their
+dependency-installation and SBOM commands.
 
 Repository-specific dispatchers, secrets, environments, license policy, and
 license exceptions remain in each application repository.
