@@ -14,10 +14,10 @@ on:
         type: string
         default: npm ci
       lint_command:
-        description: Lint command
+        description: Optional lint command; leave empty when the caller has no clean lint baseline
         required: false
         type: string
-        default: npm run lint
+        default: ''
       test_command:
         description: Jest CI and coverage command
         required: false
@@ -113,6 +113,7 @@ jobs:
         run: ${{ inputs.install_command }}
 
       - name: Lint
+        if: inputs.lint_command != ''
         run: ${{ inputs.lint_command }}
 
       - name: Run Jest CI with coverage

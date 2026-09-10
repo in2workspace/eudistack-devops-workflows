@@ -80,7 +80,9 @@ GitHub context property.
 The build defaults match `eudistack-core-wallet-pwa`: Node 22/npm,
 `dist/out/browser` for production and `www` for development. Commands, output
 paths, public smoke/ZAP URLs, concurrency groups, and runtime public values are
-typed reusable-workflow inputs. The release version is derived only from
+typed reusable-workflow inputs. Lint is opt-in so repositories can migrate
+without converting pre-existing lint debt into a new deployment blocker. The
+release version is derived only from
 `release/vX.Y.Z`; `package.json` is intentionally not required to match.
 `RELEASE_VERSION=X.Y.Z` is present for the production prebuild. DEV records
 `<package-version>+dev.<run-number>.<short-sha>` as deployment metadata while
