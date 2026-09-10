@@ -93,11 +93,13 @@ $DefaultRequiredSecrets = @{
         'SONAR_TOKEN'
     )
     'spa' = @(
-        'AWS_ACCESS_KEY_ID'
+        'AWS_ACCESS_KEY_ID_DEV'
         'AWS_ACCESS_KEY_ID_PRO'
+        'AWS_ACCESS_KEY_ID_STG'
         'AWS_REGION'
-        'AWS_SECRET_ACCESS_KEY'
+        'AWS_SECRET_ACCESS_KEY_DEV'
         'AWS_SECRET_ACCESS_KEY_PRO'
+        'AWS_SECRET_ACCESS_KEY_STG'
         'SONAR_TOKEN'
     )
 }
