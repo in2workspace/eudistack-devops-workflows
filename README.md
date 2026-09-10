@@ -89,7 +89,10 @@ the application build retains its normal package version.
 Runtime values are rendered from `assets/env.template.js`. Placeholders may be
 `${NAME}`, `{{NAME}}`, or `__NAME__`; every name in
 `runtime_required_variables` must be present and used. Non-secret public URLs
-and identifiers are passed in the appropriate `*_public_config_json` input.
+and identifiers can be passed in the appropriate `*_public_config_json` input.
+The standard `LOGS_ENABLED`, `WALLET_MODE`, and `PREFERRED_GRANT` values are
+read directly from each job's GitHub Environment variables and override the
+corresponding JSON values when configured.
 `WIA` and `WIA_INSTANCE_KEY_JWK` are protected Environment secrets. Their
 values are never written to logs or evidence. Evidence records only the
 SHA-256 of the rendered `assets/env.js`.

@@ -80,9 +80,9 @@ on:
       AWS_REGION:
         required: true
       WIA:
-        required: true
+        required: false
       WIA_INSTANCE_KEY_JWK:
-        required: true
+        required: false
 
 permissions:
   contents: read
@@ -209,6 +209,9 @@ jobs:
         env:
           WIA: ${{ secrets.WIA }}
           WIA_INSTANCE_KEY_JWK: ${{ secrets.WIA_INSTANCE_KEY_JWK }}
+          LOGS_ENABLED: ${{ vars.LOGS_ENABLED }}
+          WALLET_MODE: ${{ vars.WALLET_MODE }}
+          PREFERRED_GRANT: ${{ vars.PREFERRED_GRANT }}
           BUILD_OUTPUT: ${{ inputs.build_output }}
           RUNTIME_PUBLIC_CONFIG: ${{ inputs.runtime_public_config_json }}
         run: |
@@ -216,7 +219,12 @@ jobs:
           umask 077
           trap 'rm -f runtime-config.json' EXIT
           jq --arg WIA "$WIA" --arg WIA_INSTANCE_KEY_JWK "$WIA_INSTANCE_KEY_JWK" \
-            '. + {WIA:$WIA,WIA_INSTANCE_KEY_JWK:$WIA_INSTANCE_KEY_JWK}' \
+            --arg LOGS_ENABLED "$LOGS_ENABLED" --arg WALLET_MODE "$WALLET_MODE" \
+            --arg PREFERRED_GRANT "$PREFERRED_GRANT" \
+            '. + {WIA:$WIA,WIA_INSTANCE_KEY_JWK:$WIA_INSTANCE_KEY_JWK}
+             + (if $LOGS_ENABLED != "" then {LOGS_ENABLED:$LOGS_ENABLED} else {} end)
+             + (if $WALLET_MODE != "" then {WALLET_MODE:$WALLET_MODE} else {} end)
+             + (if $PREFERRED_GRANT != "" then {PREFERRED_GRANT:$PREFERRED_GRANT} else {} end)' \
             <<< "$RUNTIME_PUBLIC_CONFIG" > runtime-config.json
           node "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/runtime-config.mjs" \
             "$BUILD_OUTPUT/assets/env.template.js" \
