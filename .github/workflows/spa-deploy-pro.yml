@@ -1,0 +1,329 @@
+name: spa-deploy-pro
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version without leading v
+        required: true
+        type: string
+      base_artifact_digest:
+        description: Canonical base manifest digest (sha256:...)
+        required: true
+        type: string
+      base_archive_digest:
+        description: Exact spa-base.tar.gz digest (sha256:...)
+        required: true
+        type: string
+      source_sha:
+        description: Exact release source commit
+        required: true
+        type: string
+      release_run_id:
+        description: Release workflow run containing base artifact and evidence
+        required: true
+        type: string
+      project_name:
+        required: true
+        type: string
+      region_code:
+        required: true
+        type: string
+      spa_prefix:
+        required: false
+        type: string
+        default: /wallet/
+      staging_environment:
+        required: false
+        type: string
+        default: stg
+      production_environment:
+        required: false
+        type: string
+        default: pro
+      production_smoke_url:
+        required: true
+        type: string
+      production_public_config_json:
+        description: JSON object of non-secret production runtime values
+        required: false
+        type: string
+        default: '{}'
+      runtime_required_variables:
+        required: false
+        type: string
+        default: LOGS_ENABLED,WALLET_MODE,PREFERRED_GRANT,WIA,WIA_INSTANCE_KEY_JWK
+      production_concurrency_group:
+        required: false
+        type: string
+        default: spa-production
+      production_monitor_minutes:
+        required: false
+        type: number
+        default: 30
+      allow_downgrade:
+        description: Permit an older release with an explicit reason
+        required: false
+        type: boolean
+        default: false
+      downgrade_reason:
+        description: Required audit reason for an older release
+        required: false
+        type: string
+        default: ''
+    secrets:
+      AWS_ACCESS_KEY_ID_PRO:
+        required: true
+      AWS_SECRET_ACCESS_KEY_PRO:
+        required: true
+      AWS_REGION:
+        required: true
+      WIA:
+        required: true
+      WIA_INSTANCE_KEY_JWK:
+        required: true
+
+permissions:
+  actions: read
+  contents: write
+  id-token: write
+  attestations: read
+
+jobs:
+  deploy:
+    name: Deploy validated SPA release to PRO
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.production_environment }}
+    concurrency:
+      group: ${{ inputs.production_concurrency_group }}
+      cancel-in-progress: false
+    env:
+      VERSION: ${{ inputs.version }}
+      BASE_DIGEST: ${{ inputs.base_artifact_digest }}
+      BASE_ARCHIVE_DIGEST: ${{ inputs.base_archive_digest }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+      PROJECT_NAME: ${{ inputs.project_name }}
+      REGION_CODE: ${{ inputs.region_code }}
+      ENVIRONMENT: ${{ inputs.production_environment }}
+      FROM_ENVIRONMENT: ${{ inputs.staging_environment }}
+      SPA_PREFIX: ${{ inputs.spa_prefix }}
+      SMOKE_URL: ${{ inputs.production_smoke_url }}
+      MONITOR_MINUTES: ${{ inputs.production_monitor_minutes }}
+      ALLOW_DOWNGRADE: ${{ inputs.allow_downgrade }}
+      DOWNGRADE_REASON: ${{ inputs.downgrade_reason }}
+    steps:
+      - name: Validate fallback contract
+        env:
+          RUNTIME_PUBLIC_CONFIG: ${{ inputs.production_public_config_json }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$BASE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$BASE_ARCHIVE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RELEASE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$PROJECT_NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]]
+          [[ "$REGION_CODE" =~ ^[a-z0-9][a-z0-9-]*$ ]]
+          [[ "$SPA_PREFIX" == /*/ && "$SPA_PREFIX" != *".."* ]]
+          [[ "$SMOKE_URL" =~ ^https?:// ]]
+          [[ "$MONITOR_MINUTES" =~ ^[0-9]+$ ]] && (( MONITOR_MINUTES <= 60 ))
+          jq -e 'type == "object"' <<< "$RUNTIME_PUBLIC_CONFIG" > /dev/null
+          if [[ "$ALLOW_DOWNGRADE" == true && -z "${DOWNGRADE_REASON// }" ]]; then
+            echo "::error::downgrade_reason is required when allow_downgrade is true."
+            exit 1
+          fi
+
+      - name: Checkout exact source commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+
+      - name: Checkout exact central workflow scripts
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: in2workspace/eudistack-devops-workflows
+          ref: ${{ job.workflow_sha }}
+          path: .eudistack-devops-workflows
+          persist-credentials: false
+
+      - name: Export exact script paths
+        run: |
+          set -euo pipefail
+          echo "EUDISTACK_DEVOPS_COMMON_SCRIPTS=${GITHUB_WORKSPACE}/.eudistack-devops-workflows/scripts/common" >> "$GITHUB_ENV"
+          echo "EUDISTACK_DEVOPS_SPA_SCRIPTS=${GITHUB_WORKSPACE}/.eudistack-devops-workflows/scripts/spa" >> "$GITHUB_ENV"
+
+      - name: Download immutable base artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: spa-release-base-${{ inputs.version }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.release_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download release evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: spa-release-evidence-${{ inputs.version }}
+          path: evidence
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.release_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Validate source, release and artifact binding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          BRANCH_SHA="$(git ls-remote --heads origin "refs/heads/release/v${VERSION}" | awk '{print $1}')"
+          [[ -z "$BRANCH_SHA" || "$BRANCH_SHA" == "$SOURCE_SHA" ]] || {
+            echo "::error::release/v${VERSION} now points to ${BRANCH_SHA}, not ${SOURCE_SHA}."
+            exit 1
+          }
+          [[ "$(sha256sum spa-base.tar.gz | awk '{print "sha256:" $1}')" == "$BASE_ARCHIVE_DIGEST" ]]
+          [[ "$(jq -r .digest base-manifest.json)" == "$BASE_DIGEST" ]]
+          ! tar -tzf spa-base.tar.gz | grep -Eq '(^/|(^|/)\.\.(/|$))' || {
+            echo "::error::Base archive contains an unsafe path."
+            exit 1
+          }
+          mkdir base-check
+          tar -xzf spa-base.tar.gz -C base-check --no-same-owner --no-same-permissions
+          node "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/manifest.mjs" verify base-check base-manifest.json "$BASE_DIGEST"
+          jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg version "$VERSION" \
+            --arg sourceSha "$SOURCE_SHA" \
+            --arg baseArtifactDigest "$BASE_DIGEST" \
+            --arg baseArchiveDigest "$BASE_ARCHIVE_DIGEST" \
+            --arg environment "$FROM_ENVIRONMENT" \
+            '.schemaVersion == 1
+             and .repository == $repository
+             and .version == $version
+             and .sourceSha == $sourceSha
+             and .baseArtifactDigest == $baseArtifactDigest
+             and .baseArchiveDigest == $baseArchiveDigest
+             and .staging.smoke == "passed"
+             and (.staging.bucket | contains("-" + $environment + "-"))' \
+            evidence/release-evidence.json > /dev/null
+          gh attestation verify spa-base.tar.gz --repo "$GITHUB_REPOSITORY"
+          gh attestation verify evidence/release-evidence.json --repo "$GITHUB_REPOSITORY"
+
+      - name: Render environment-specific PRO package
+        id: package
+        env:
+          WIA: ${{ secrets.WIA }}
+          WIA_INSTANCE_KEY_JWK: ${{ secrets.WIA_INSTANCE_KEY_JWK }}
+          RUNTIME_PUBLIC_CONFIG: ${{ inputs.production_public_config_json }}
+        run: |
+          set -euo pipefail
+          umask 077
+          trap 'rm -f runtime-config.json' EXIT
+          jq --arg WIA "$WIA" --arg WIA_INSTANCE_KEY_JWK "$WIA_INSTANCE_KEY_JWK" \
+            '. + {WIA:$WIA,WIA_INSTANCE_KEY_JWK:$WIA_INSTANCE_KEY_JWK}' \
+            <<< "$RUNTIME_PUBLIC_CONFIG" > runtime-config.json
+          bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/materialize-environment.sh" \
+            spa-base.tar.gz base-manifest.json "$BASE_DIGEST" environment \
+            runtime-config.json "${{ inputs.runtime_required_variables }}" spa-pro
+
+      - name: Configure PRO AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PRO }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PRO }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Resolve PRO resources
+        run: |
+          set -euo pipefail
+          LIVE_PREFIX="${SPA_PREFIX#/}"; LIVE_PREFIX="${LIVE_PREFIX%/}"
+          PACKAGE_DIGEST="${{ steps.package.outputs.package_digest }}"
+          {
+            echo "BUCKET=${PROJECT_NAME}-${ENVIRONMENT}-s3-${REGION_CODE}-spa"
+            echo "LIVE_PREFIX=$LIVE_PREFIX"
+            echo "RELEASE_PREFIX=releases/v${VERSION}/${PACKAGE_DIGEST#sha256:}"
+            echo "CLOUDFRONT_COMMENT_PREFIX=${PROJECT_NAME}-${ENVIRONMENT}-cdn-${REGION_CODE}-"
+          } >> "$GITHUB_ENV"
+
+      - name: Inspect current production deployment
+        id: previous
+        run: bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" inspect "$BUCKET" "$LIVE_PREFIX" deployment-state
+
+      - name: Enforce fallback release order and identity
+        run: |
+          set -euo pipefail
+          node "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/compare-release-version.mjs" \
+            "${{ steps.previous.outputs.version }}" "$VERSION" fallback "$ALLOW_DOWNGRADE" "$DOWNGRADE_REASON"
+          if [[ "${{ steps.previous.outputs.version }}" == "$VERSION" \
+             && "${{ steps.previous.outputs.base_artifact_digest }}" != "$BASE_DIGEST" ]]; then
+            echo "::error::Version ${VERSION} is already deployed with a different base artifact digest."
+            exit 1
+          fi
+
+      - name: Publish immutable PRO release
+        id: published
+        run: bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" publish "$BUCKET" "$RELEASE_PREFIX" environment spa-pro-manifest.json "${{ steps.package.outputs.package_digest }}"
+
+      - name: Activate PRO release
+        id: activate
+        run: bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" activate "$BUCKET" "$RELEASE_PREFIX" "$LIVE_PREFIX"
+
+      - name: Invalidate and wait for PRO CloudFront
+        run: bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/cloudfront.sh" "$CLOUDFRONT_COMMENT_PREFIX" "$LIVE_PREFIX" "${{ secrets.AWS_REGION }}" pro-invalidations.json
+
+      - name: Verify exact PRO content
+        run: bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" verify "$BUCKET" "$LIVE_PREFIX" spa-pro-manifest.json "${{ steps.package.outputs.package_digest }}" live-verification
+
+      - name: Smoke test and monitor PRO
+        id: validated
+        run: |
+          set -euo pipefail
+          bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "$SMOKE_URL"
+          for minute in $(seq 1 "$MONITOR_MINUTES"); do
+            sleep 60
+            echo "Production smoke check ${minute}/${MONITOR_MINUTES}"
+            bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "$SMOKE_URL"
+          done
+
+      - name: Finalize production metadata
+        run: |
+          set -euo pipefail
+          bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" finalize \
+            "$BUCKET" "$LIVE_PREFIX" \
+            "${{ steps.previous.outputs.prefix }}" "${{ steps.previous.outputs.version }}" "${{ steps.previous.outputs.package_digest }}" \
+            "$RELEASE_PREFIX" "$VERSION" "${{ steps.package.outputs.package_digest }}" \
+            "$SOURCE_SHA" "$BASE_DIGEST" "${{ steps.package.outputs.env_digest }}"
+
+      - name: Publish GitHub Release idempotently
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+            [[ "$(git rev-list -n 1 "$TAG")" == "$SOURCE_SHA" ]] || {
+              echo "::error::Existing release ${TAG} targets another source commit."
+              exit 1
+            }
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+              spa-base.tar.gz base-manifest.json sbom.cdx.json \
+              evidence/release-evidence.json spa-pro-manifest.json
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+              --title "$TAG" --generate-notes \
+              spa-base.tar.gz base-manifest.json sbom.cdx.json \
+              evidence/release-evidence.json spa-pro-manifest.json
+          fi
+
+      - name: Roll back failed production activation
+        if: ${{ failure() && steps.published.outcome == 'success' && steps.validated.outcome != 'success' && steps.previous.outputs.prefix != '' }}
+        run: |
+          set -euo pipefail
+          bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" rollback "$BUCKET" "${{ steps.previous.outputs.prefix }}" "$LIVE_PREFIX"
+          bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/cloudfront.sh" "$CLOUDFRONT_COMMENT_PREFIX" "$LIVE_PREFIX" "${{ secrets.AWS_REGION }}" rollback-invalidations.json
+          bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" verify-release-live \
+            "$BUCKET" "${{ steps.previous.outputs.prefix }}" "$LIVE_PREFIX" \
+            "${{ steps.previous.outputs.package_digest }}" rollback-verification
+          bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "$SMOKE_URL"

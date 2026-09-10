@@ -1,0 +1,241 @@
+name: spa-pr
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: Node.js version
+        required: false
+        type: string
+        default: '22'
+      install_command:
+        description: Reproducible dependency installation command
+        required: false
+        type: string
+        default: npm ci
+      lint_command:
+        description: Lint command
+        required: false
+        type: string
+        default: npm run lint
+      test_command:
+        description: Jest CI and coverage command
+        required: false
+        type: string
+        default: npm run test:ci
+      build_command:
+        description: Development SPA build command
+        required: false
+        type: string
+        default: npm run build -- --configuration development
+      build_output:
+        description: Development build output directory
+        required: false
+        type: string
+        default: www
+      trivy_ignore_file:
+        description: Caller repository Trivy ignore file
+        required: false
+        type: string
+        default: config/trivy/.trivyignore
+      serve_command:
+        description: Command that serves the built SPA
+        required: false
+        type: string
+        default: python3 -m http.server 8080 --directory www
+      smoke_url:
+        description: URL used to wait for the local SPA
+        required: false
+        type: string
+        default: http://127.0.0.1:8080/
+      zap_target_url:
+        description: Public local URL scanned by ZAP Ajax
+        required: false
+        type: string
+        default: http://127.0.0.1:8080/
+      zap_rules_file:
+        description: Caller repository ZAP rules file
+        required: false
+        type: string
+        default: dev-tools/testing/zap/zap-baseline.conf
+    secrets:
+      SONAR_TOKEN:
+        description: SonarCloud authentication token
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: spa-ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect SPA changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '!**/*.md'
+              - '!docs/**'
+              - '!.github/**'
+              - '!LICENSE'
+              - '!.gitignore'
+
+  quality:
+    name: Lint, test, build and scan
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: ${{ inputs.install_command }}
+
+      - name: Lint
+        run: ${{ inputs.lint_command }}
+
+      - name: Run Jest CI with coverage
+        run: ${{ inputs.test_command }}
+
+      - name: Build development SPA
+        run: ${{ inputs.build_command }}
+
+      - name: Run Sonar scan
+        uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: SonarCloud quality gate
+        uses: sonarsource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1.2.1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          scanMetadataReportFile: .scannerwork/report-task.txt
+
+      - name: Informational Trivy scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+          ignore-unfixed: true
+          format: table
+          trivyignores: ${{ inputs.trivy_ignore_file }}
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: spa-coverage
+          path: coverage/
+          if-no-files-found: warn
+
+      - name: Upload built SPA
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: spa-pr-build
+          path: ${{ inputs.build_output }}
+          if-no-files-found: error
+          retention-days: 7
+
+  dast:
+    name: ZAP Ajax baseline
+    needs: [changes, quality]
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Checkout exact central workflow scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: in2workspace/eudistack-devops-workflows
+          ref: ${{ job.workflow_sha }}
+          path: .eudistack-devops-workflows
+          persist-credentials: false
+
+      - name: Export exact script paths
+        run: |
+          set -euo pipefail
+          echo "EUDISTACK_DEVOPS_COMMON_SCRIPTS=${GITHUB_WORKSPACE}/.eudistack-devops-workflows/scripts/common" >> "$GITHUB_ENV"
+
+      - name: Download built SPA
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: spa-pr-build
+          path: ${{ inputs.build_output }}
+
+      - name: Serve SPA
+        run: |
+          set -euo pipefail
+          ${{ inputs.serve_command }} > spa-server.log 2>&1 &
+          echo "SPA_SERVER_PID=$!" >> "$GITHUB_ENV"
+          bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "${{ inputs.smoke_url }}"
+
+      - name: ZAP Ajax baseline scan
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
+        with:
+          target: ${{ inputs.zap_target_url }}
+          rules_file_name: ${{ inputs.zap_rules_file }}
+          artifact_name: spa-zap-report
+          fail_action: false
+          allow_issue_writing: false
+          cmd_options: -j
+
+      - name: Publish ZAP report
+        if: always()
+        run: |
+          set -euo pipefail
+          if [[ -f report_md.md ]]; then
+            cat report_md.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::ZAP markdown report is missing."
+            exit 1
+          fi
+
+      - name: Enforce High/Critical ZAP findings
+        if: always()
+        run: |
+          set -euo pipefail
+          [[ -s report_json.json ]] || {
+            echo "::error::ZAP JSON report is missing."
+            exit 1
+          }
+          jq -e 'type == "object" and (.site | type == "array") and all(.site[]?; (.alerts | type == "array"))' report_json.json > /dev/null
+          high="$(jq '[.site[]?.alerts[]? | select(((.riskcode // "0") | tonumber) >= 3)] | length' report_json.json)"
+          [[ "$high" == "0" ]] || {
+            echo "::error::ZAP reported ${high} High/Critical finding(s)."
+            exit 1
+          }
+
+      - name: Stop SPA server
+        if: always()
+        run: |
+          set -euo pipefail
+          if [[ -n "${SPA_SERVER_PID:-}" ]] && kill -0 "$SPA_SERVER_PID" 2>/dev/null; then
+            kill "$SPA_SERVER_PID"
+          fi

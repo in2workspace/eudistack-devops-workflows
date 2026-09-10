@@ -1,0 +1,321 @@
+name: spa-cd-dev
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        description: Project prefix used in AWS resource names
+        required: true
+        type: string
+      region_code:
+        description: Region abbreviation used in AWS resource names
+        required: true
+        type: string
+      environment:
+        description: DEV GitHub Environment name
+        required: false
+        type: string
+        default: dev
+      spa_prefix:
+        description: Controlled live S3 prefix
+        required: false
+        type: string
+        default: /wallet/
+      smoke_url:
+        description: Public DEV URL used after activation
+        required: true
+        type: string
+      node_version:
+        description: Node.js version
+        required: false
+        type: string
+        default: '22'
+      install_command:
+        description: Dependency installation command
+        required: false
+        type: string
+        default: npm ci
+      lint_command:
+        description: Lint command
+        required: false
+        type: string
+        default: npm run lint
+      test_command:
+        description: Jest CI command
+        required: false
+        type: string
+        default: npm run test:ci
+      build_command:
+        description: Production build command
+        required: false
+        type: string
+        default: npm run build -- --configuration production
+      build_output:
+        description: Production browser output
+        required: false
+        type: string
+        default: dist/out/browser
+      runtime_public_config_json:
+        description: JSON object of non-secret runtime template values
+        required: false
+        type: string
+        default: '{}'
+      runtime_required_variables:
+        description: Comma-separated env.template.js placeholder names
+        required: false
+        type: string
+        default: LOGS_ENABLED,WALLET_MODE,PREFERRED_GRANT,WIA,WIA_INSTANCE_KEY_JWK
+      artifact_retention_days:
+        description: DEV artifact retention
+        required: false
+        type: number
+        default: 14
+    secrets:
+      SONAR_TOKEN:
+        required: true
+      AWS_ACCESS_KEY_ID_DEV:
+        required: true
+      AWS_SECRET_ACCESS_KEY_DEV:
+        required: true
+      AWS_REGION:
+        required: true
+      WIA:
+        required: true
+      WIA_INSTANCE_KEY_JWK:
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: ${{ format('{0}-{1}', github.repository, inputs.environment) }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy DEV SPA
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      PROJECT_NAME: ${{ inputs.project_name }}
+      REGION_CODE: ${{ inputs.region_code }}
+      ENVIRONMENT: ${{ inputs.environment }}
+      SPA_PREFIX: ${{ inputs.spa_prefix }}
+      SMOKE_URL: ${{ inputs.smoke_url }}
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Checkout exact central workflow scripts
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: in2workspace/eudistack-devops-workflows
+          ref: ${{ job.workflow_sha }}
+          path: .eudistack-devops-workflows
+          persist-credentials: false
+
+      - name: Export exact script paths
+        run: |
+          set -euo pipefail
+          echo "EUDISTACK_DEVOPS_COMMON_SCRIPTS=${GITHUB_WORKSPACE}/.eudistack-devops-workflows/scripts/common" >> "$GITHUB_ENV"
+          echo "EUDISTACK_DEVOPS_SPA_SCRIPTS=${GITHUB_WORKSPACE}/.eudistack-devops-workflows/scripts/spa" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+
+      - name: Validate deployment inputs
+        env:
+          RUNTIME_PUBLIC_CONFIG: ${{ inputs.runtime_public_config_json }}
+        run: |
+          set -euo pipefail
+          [[ "$PROJECT_NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]]
+          [[ "$REGION_CODE" =~ ^[a-z0-9][a-z0-9-]*$ ]]
+          [[ "$ENVIRONMENT" == dev ]]
+          [[ "$GITHUB_REF" == refs/heads/main ]] || {
+            echo "::error::The DEV workflow only accepts refs/heads/main."
+            exit 1
+          }
+          [[ "$SPA_PREFIX" == /*/ && "$SPA_PREFIX" != *".."* ]]
+          [[ "$SMOKE_URL" =~ ^https?:// ]]
+          jq -e 'type == "object"' <<< "$RUNTIME_PUBLIC_CONFIG" > /dev/null
+
+      - name: Resolve DEV build version
+        id: metadata
+        run: |
+          set -euo pipefail
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          [[ "$PACKAGE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || {
+            echo "::error::package.json version is not a valid build metadata base."
+            exit 1
+          }
+          VERSION="${PACKAGE_VERSION}+dev.${GITHUB_RUN_NUMBER}.${GITHUB_SHA:0:12}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: ${{ inputs.install_command }}
+
+      - name: Lint
+        run: ${{ inputs.lint_command }}
+
+      - name: Test
+        run: ${{ inputs.test_command }}
+
+      - name: Build production SPA
+        run: ${{ inputs.build_command }}
+
+      - name: Run Sonar scan
+        uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: SonarCloud quality gate
+        uses: sonarsource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1.2.1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          scanMetadataReportFile: .scannerwork/report-task.txt
+
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format cyclonedx > sbom.cdx.json
+
+      - name: Create immutable base artifact
+        id: base
+        env:
+          BUILD_OUTPUT: ${{ inputs.build_output }}
+        run: |
+          set -euo pipefail
+          [[ -d "$BUILD_OUTPUT" ]] || {
+            echo "::error::Build output '$BUILD_OUTPUT' does not exist."
+            exit 1
+          }
+          rm -f "$BUILD_OUTPUT/assets/env.js"
+          node "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/manifest.mjs" generate "$BUILD_OUTPUT" base-manifest.json
+          BASE_DIGEST="$(jq -r .digest base-manifest.json)"
+          bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/package-spa.sh" "$BUILD_OUTPUT" base-manifest.json spa-base.tar.gz > base-package-digest.txt
+          {
+            echo "digest=$BASE_DIGEST"
+            echo "package_digest=$(cat base-package-digest.txt)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Render DEV runtime configuration
+        id: config
+        env:
+          WIA: ${{ secrets.WIA }}
+          WIA_INSTANCE_KEY_JWK: ${{ secrets.WIA_INSTANCE_KEY_JWK }}
+          BUILD_OUTPUT: ${{ inputs.build_output }}
+          RUNTIME_PUBLIC_CONFIG: ${{ inputs.runtime_public_config_json }}
+        run: |
+          set -euo pipefail
+          umask 077
+          trap 'rm -f runtime-config.json' EXIT
+          jq --arg WIA "$WIA" --arg WIA_INSTANCE_KEY_JWK "$WIA_INSTANCE_KEY_JWK" \
+            '. + {WIA:$WIA,WIA_INSTANCE_KEY_JWK:$WIA_INSTANCE_KEY_JWK}' \
+            <<< "$RUNTIME_PUBLIC_CONFIG" > runtime-config.json
+          node "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/runtime-config.mjs" \
+            "$BUILD_OUTPUT/assets/env.template.js" \
+            "$BUILD_OUTPUT/assets/env.js" \
+            "${{ inputs.runtime_required_variables }}" \
+            runtime-config.json
+
+      - name: Create environment package manifest
+        id: package
+        env:
+          BUILD_OUTPUT: ${{ inputs.build_output }}
+        run: |
+          set -euo pipefail
+          node "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/manifest.mjs" generate "$BUILD_OUTPUT" environment-manifest.json
+          PACKAGE_DIGEST="$(jq -r .digest environment-manifest.json)"
+          echo "digest=$PACKAGE_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Upload DEV evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: spa-dev-${{ github.sha }}
+          path: |
+            spa-base.tar.gz
+            base-manifest.json
+            environment-manifest.json
+            base-package-digest.txt
+            sbom.cdx.json
+          retention-days: ${{ inputs.artifact_retention_days }}
+
+      - name: Attest immutable base artifact
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: |
+            spa-base.tar.gz
+            base-manifest.json
+
+      - name: Configure DEV AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_DEV }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_DEV }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Resolve deployment resources
+        run: |
+          set -euo pipefail
+          LIVE_PREFIX="${SPA_PREFIX#/}"; LIVE_PREFIX="${LIVE_PREFIX%/}"
+          BUCKET="${PROJECT_NAME}-${ENVIRONMENT}-s3-${REGION_CODE}-spa"
+          RELEASE_PREFIX="releases/dev/${GITHUB_SHA}-${GITHUB_RUN_ID}"
+          {
+            echo "BUCKET=$BUCKET"
+            echo "LIVE_PREFIX=$LIVE_PREFIX"
+            echo "RELEASE_PREFIX=$RELEASE_PREFIX"
+            echo "CLOUDFRONT_COMMENT_PREFIX=${PROJECT_NAME}-${ENVIRONMENT}-cdn-${REGION_CODE}-"
+          } >> "$GITHUB_ENV"
+
+      - name: Inspect current DEV deployment
+        id: previous
+        run: bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" inspect "$BUCKET" "$LIVE_PREFIX" deployment-state
+
+      - name: Publish immutable DEV package
+        id: published
+        env:
+          BUILD_OUTPUT: ${{ inputs.build_output }}
+        run: bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" publish "$BUCKET" "$RELEASE_PREFIX" "$BUILD_OUTPUT" environment-manifest.json "${{ steps.package.outputs.digest }}"
+
+      - name: Activate DEV package
+        id: activate
+        run: bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" activate "$BUCKET" "$RELEASE_PREFIX" "$LIVE_PREFIX"
+
+      - name: Invalidate and wait for DEV CloudFront
+        id: cloudfront
+        run: bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/cloudfront.sh" "$CLOUDFRONT_COMMENT_PREFIX" "$LIVE_PREFIX" "${{ secrets.AWS_REGION }}" cloudfront-invalidations.json
+
+      - name: Verify exact DEV live content
+        run: bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" verify "$BUCKET" "$LIVE_PREFIX" environment-manifest.json "${{ steps.package.outputs.digest }}" live-verification
+
+      - name: Smoke test DEV
+        id: validated
+        run: bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "$SMOKE_URL"
+
+      - name: Finalize DEV deployment state
+        run: |
+          set -euo pipefail
+          bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" finalize \
+            "$BUCKET" "$LIVE_PREFIX" \
+            "${{ steps.previous.outputs.prefix }}" "${{ steps.previous.outputs.version }}" "${{ steps.previous.outputs.package_digest }}" \
+            "$RELEASE_PREFIX" "${{ steps.metadata.outputs.version }}" "${{ steps.package.outputs.digest }}" \
+            "$GITHUB_SHA" "${{ steps.base.outputs.digest }}" "${{ steps.config.outputs.digest }}"
+
+      - name: Roll back failed DEV deployment
+        if: ${{ failure() && steps.published.outcome == 'success' && steps.validated.outcome != 'success' && steps.previous.outputs.prefix != '' }}
+        run: |
+          set -euo pipefail
+          bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" rollback \
+            "$BUCKET" "${{ steps.previous.outputs.prefix }}" "$LIVE_PREFIX"
+          bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/cloudfront.sh" \
+            "$CLOUDFRONT_COMMENT_PREFIX" "$LIVE_PREFIX" "${{ secrets.AWS_REGION }}" rollback-invalidations.json
+          bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" verify-release-live \
+            "$BUCKET" "${{ steps.previous.outputs.prefix }}" "$LIVE_PREFIX" \
+            "${{ steps.previous.outputs.package_digest }}" rollback-verification
+          bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "$SMOKE_URL"
