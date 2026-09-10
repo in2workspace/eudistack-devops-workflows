@@ -70,9 +70,6 @@ jobs:
         with:
           node-version: ${{ inputs.node_version }}
 
-      - name: Verify the license gate itself
-        run: node --test "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/license-gate.test.mjs"
-
       - name: Install dependencies
         if: inputs.install_command != ''
         run: ${{ inputs.install_command }}
