@@ -76,6 +76,7 @@ inspect() {
     base_digest="$(jq -r '.baseArtifactDigest // .packageDigest' "$work/current.json")"
     legacy=false
   else
+    rm -f "$work/current.json"
     legacy_dir="$work/legacy"
     download_prefix "$bucket" "$live" "$legacy_dir"
     node "$(dirname "$0")/manifest.mjs" generate "$legacy_dir" "$work/legacy-manifest.json" > /dev/null
@@ -199,6 +200,35 @@ finalize() {
   rm -f "$current_file" "$previous_file"
 }
 
+restore_state() {
+  local bucket="$1" live="$2" saved_state="$3" previous_prefix="$4"
+  local previous_version="$5" previous_digest="$6" state restore_file
+  live="$(normalize_prefix "$live")"
+  previous_prefix="$(normalize_prefix "$previous_prefix")"
+  validate_digest "$previous_digest"
+  state="$(state_prefix_for "$live")"
+
+  if [[ -f "$saved_state" ]]; then
+    jq -e --arg version "$previous_version" --arg prefix "$previous_prefix" \
+      --arg packageDigest "$previous_digest" '
+        .schemaVersion == 1
+        and .version == $version
+        and .prefix == $prefix
+        and .packageDigest == $packageDigest
+      ' "$saved_state" > /dev/null || fail "Saved deployment state does not match the rollback target."
+    restore_file="$saved_state"
+  else
+    restore_file="${RUNNER_TEMP:-.}/spa-restored-${GITHUB_RUN_ID:-local}.json"
+    jq -n --arg version "$previous_version" --arg prefix "$previous_prefix" \
+      --arg packageDigest "$previous_digest" \
+      '{schemaVersion:1,version:$version,prefix:$prefix,packageDigest:$packageDigest}' > "$restore_file"
+  fi
+
+  aws s3 cp "$restore_file" "s3://${bucket}/${state}/current.json" \
+    --cache-control 'no-store,max-age=0' --content-type application/json --only-show-errors
+  [[ "$restore_file" == "$saved_state" ]] || rm -f "$restore_file"
+}
+
 case "${1:-}" in
   inspect)
     [[ "$#" == 4 ]] || fail "Usage: $0 inspect BUCKET LIVE_PREFIX WORK_DIRECTORY"
@@ -224,7 +254,11 @@ case "${1:-}" in
     [[ "$#" == 12 ]] || fail "Usage: $0 finalize BUCKET LIVE_PREFIX PREVIOUS_PREFIX PREVIOUS_VERSION PREVIOUS_DIGEST NEW_PREFIX NEW_VERSION NEW_DIGEST SOURCE_SHA BASE_DIGEST ENV_DIGEST"
     finalize "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" "${12}"
     ;;
+  restore-state)
+    [[ "$#" == 7 ]] || fail "Usage: $0 restore-state BUCKET LIVE_PREFIX SAVED_STATE PREVIOUS_PREFIX PREVIOUS_VERSION PREVIOUS_DIGEST"
+    restore_state "$2" "$3" "$4" "$5" "$6" "$7"
+    ;;
   *)
-    fail "Usage: $0 {inspect|publish|activate|verify|verify-release-live|rollback|finalize} ..."
+    fail "Usage: $0 {inspect|publish|activate|verify|verify-release-live|rollback|finalize|restore-state} ..."
     ;;
 esac

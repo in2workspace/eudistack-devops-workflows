@@ -295,6 +295,7 @@ jobs:
           done
 
       - name: Finalize production metadata
+        id: finalized
         run: |
           set -euo pipefail
           bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" finalize \
@@ -326,10 +327,13 @@ jobs:
           fi
 
       - name: Roll back failed production activation
-        if: ${{ failure() && steps.published.outcome == 'success' && steps.validated.outcome != 'success' && steps.previous.outputs.prefix != '' }}
+        if: ${{ (failure() || cancelled()) && steps.published.outcome == 'success' && steps.finalized.outcome != 'success' && steps.previous.outputs.prefix != '' }}
         run: |
           set -euo pipefail
           bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" rollback "$BUCKET" "${{ steps.previous.outputs.prefix }}" "$LIVE_PREFIX"
+          bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" restore-state \
+            "$BUCKET" "$LIVE_PREFIX" deployment-state/current.json \
+            "${{ steps.previous.outputs.prefix }}" "${{ steps.previous.outputs.version }}" "${{ steps.previous.outputs.package_digest }}"
           bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/cloudfront.sh" "$CLOUDFRONT_COMMENT_PREFIX" "$LIVE_PREFIX" "${{ secrets.AWS_REGION }}" rollback-invalidations.json
           bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" verify-release-live \
             "$BUCKET" "${{ steps.previous.outputs.prefix }}" "$LIVE_PREFIX" \
