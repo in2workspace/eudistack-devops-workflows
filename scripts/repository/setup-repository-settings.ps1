@@ -6,6 +6,10 @@ param(
     [string] $Repository = $env:GITHUB_REPOSITORY,
 
     [Parameter()]
+    [ValidateSet('ecs-api', 'spa')]
+    [string] $Profile = 'ecs-api',
+
+    [Parameter()]
     [string] $Name = 'main-protection',
 
     [Parameter()]
@@ -41,17 +45,7 @@ param(
     [string[]] $EnvironmentReviewerTeam = @('in2workspace/kizunaops'),
 
     [Parameter()]
-    [string[]] $RequiredSecret = @(
-        'AWS_ACCESS_KEY_ID_DEV',
-        'AWS_ACCESS_KEY_ID_PRO',
-        'AWS_ACCESS_KEY_ID_STG',
-        'AWS_ECR_REPOSITORY',
-        'AWS_REGION',
-        'AWS_SECRET_ACCESS_KEY_DEV',
-        'AWS_SECRET_ACCESS_KEY_PRO',
-        'AWS_SECRET_ACCESS_KEY_STG',
-        'SONAR_TOKEN'
-    ),
+    [string[]] $RequiredSecret = @(),
 
     [Parameter()]
     [switch] $SkipSecretCheck,
@@ -71,12 +65,42 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$DefaultChecks = @(
-    'application-ci / Build & Test'
-    'application-ci / ZAP DAST Baseline'
-    'license-compliance / License Compliance Check'
-    'analyze / Analyze (java)'
-)
+$DefaultChecks = @{
+    'ecs-api' = @(
+        'application-ci / Build & Test'
+        'application-ci / ZAP DAST Baseline'
+        'license-compliance / License Compliance Check'
+        'analyze / Analyze (java)'
+    )
+    'spa' = @(
+        'quality / Lint, test, build and scan'
+        'quality / ZAP Ajax baseline'
+        'license-compliance / License Compliance Check'
+        'analyze / Analyze (javascript-typescript)'
+    )
+}
+
+$DefaultRequiredSecrets = @{
+    'ecs-api' = @(
+        'AWS_ACCESS_KEY_ID_DEV'
+        'AWS_ACCESS_KEY_ID_PRO'
+        'AWS_ACCESS_KEY_ID_STG'
+        'AWS_ECR_REPOSITORY'
+        'AWS_REGION'
+        'AWS_SECRET_ACCESS_KEY_DEV'
+        'AWS_SECRET_ACCESS_KEY_PRO'
+        'AWS_SECRET_ACCESS_KEY_STG'
+        'SONAR_TOKEN'
+    )
+    'spa' = @(
+        'AWS_ACCESS_KEY_ID'
+        'AWS_ACCESS_KEY_ID_PRO'
+        'AWS_REGION'
+        'AWS_SECRET_ACCESS_KEY'
+        'AWS_SECRET_ACCESS_KEY_PRO'
+        'SONAR_TOKEN'
+    )
+}
 
 if ([string]::IsNullOrWhiteSpace($Repository)) {
     throw 'Provide -Repository OWNER/REPO or set GITHUB_REPOSITORY.'
@@ -94,7 +118,11 @@ if ($unknownApprovalEnvironments.Count -gt 0) {
 }
 
 if ($Check.Count -eq 0) {
-    $Check = $DefaultChecks
+    $Check = $DefaultChecks[$Profile]
+}
+
+if ($RequiredSecret.Count -eq 0) {
+    $RequiredSecret = $DefaultRequiredSecrets[$Profile]
 }
 
 $repositoryParts = $Repository.Split('/')

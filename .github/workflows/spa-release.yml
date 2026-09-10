@@ -146,6 +146,7 @@ jobs:
       - name: Export exact script paths
         run: |
           set -euo pipefail
+          echo "EUDISTACK_DEVOPS_COMMON_SCRIPTS=${GITHUB_WORKSPACE}/.eudistack-devops-workflows/scripts/common" >> "$GITHUB_ENV"
           echo "EUDISTACK_DEVOPS_SPA_SCRIPTS=${GITHUB_WORKSPACE}/.eudistack-devops-workflows/scripts/spa" >> "$GITHUB_ENV"
 
       - name: Validate release branch and correction policy
@@ -175,6 +176,11 @@ jobs:
             exit 1
           }
           VERSION="${GITHUB_REF_NAME#release/v}"
+          PACKAGE_VERSION="$(jq -r '.version // empty' package.json)"
+          [[ "$PACKAGE_VERSION" == "$VERSION" ]] || {
+            echo "::error::package.json version '${PACKAGE_VERSION}' must match release branch version '${VERSION}'."
+            exit 1
+          }
           if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "::error::Release v${VERSION} already exists; corrections require a new version."
             exit 1
@@ -218,6 +224,12 @@ jobs:
 
       - name: Generate npm CycloneDX SBOM
         run: npm sbom --sbom-format cyclonedx > sbom.cdx.json
+
+      - name: Evaluate release licenses and version
+        run: >-
+          node "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/license-gate.mjs"
+          --sbom-path sbom.cdx.json
+          --expect-version "${{ steps.release.outputs.version }}"
 
       - name: Scan source, dependencies and configuration
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

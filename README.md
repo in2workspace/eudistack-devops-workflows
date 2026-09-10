@@ -88,7 +88,9 @@ paths, public smoke/ZAP URLs, concurrency groups, and runtime public values are
 typed reusable-workflow inputs. Lint is opt-in so repositories can migrate
 without converting pre-existing lint debt into a new deployment blocker. The
 release version is derived only from
-`release/vX.Y.Z`; `package.json` is intentionally not required to match.
+`release/vX.Y.Z`; `package.json` must contain the same version so package
+metadata, build metadata, the CycloneDX SBOM, and the GitHub Release cannot
+diverge.
 `RELEASE_VERSION=X.Y.Z` is present for the production prebuild. DEV records
 `<package-version>+dev.<run-number>.<short-sha>` as deployment metadata while
 the application build retains its normal package version.
@@ -112,6 +114,20 @@ Required caller configuration:
 - Public caller inputs: smoke URLs, PR ZAP URL, and runtime public JSON.
 - Resource inputs: `project_name`, `region_code`, and normally
   `spa_prefix: /wallet/`.
+
+Configure repository rules and deployment environments with the SPA profile:
+
+```powershell
+.\scripts\repository\setup-repository-settings.ps1 `
+    -Repository 'OWNER/REPOSITORY' `
+    -Profile spa `
+    -DryRun
+```
+
+Inspect the dry-run output and repeat without `-DryRun`. The profile selects
+the SPA PR check contexts and repository-level AWS secret names. It creates
+the `dev`, `stg`, and `pro` environments but cannot populate their protected
+variables or secrets; configure the runtime values listed above separately.
 
 AWS resource names are
 `<project>-<environment>-s3-<region_code>-spa`; CloudFront distributions are
