@@ -65,7 +65,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: spa-ci-${{ github.head_ref || github.ref }}
@@ -119,6 +119,13 @@ jobs:
       - name: Run Jest CI with coverage
         run: ${{ inputs.test_command }}
 
+      - name: Publish coverage report
+        if: always()
+        uses: davelosert/vitest-coverage-report-action@c4bbc33a89b7ace0e63d35f1f7d4bcee31155a73 # v2
+        with:
+          json-summary-path: coverage/app/coverage-summary.json
+          json-final-path: coverage/app/coverage-final.json
+
       - name: Build development SPA
         run: ${{ inputs.build_command }}
 
@@ -147,6 +154,29 @@ jobs:
           ignore-unfixed: true
           format: table
           trivyignores: ${{ inputs.trivy_ignore_file }}
+
+      - name: Generate Trivy JSON report
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+          ignore-unfixed: true
+          format: json
+          output: trivy-report.json
+          trivyignores: ${{ inputs.trivy_ignore_file }}
+
+      - name: Upload Trivy JSON report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: spa-trivy-report
+          path: trivy-report.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload coverage
         if: always()
