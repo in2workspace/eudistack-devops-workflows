@@ -131,12 +131,12 @@ jobs:
       archive_digest: ${{ steps.base.outputs.archive_digest }}
     steps:
       - name: Checkout release branch
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Checkout exact central workflow scripts
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: in2workspace/eudistack-devops-workflows
           ref: ${{ job.workflow_sha }}
@@ -289,12 +289,12 @@ jobs:
       REGION_CODE: ${{ inputs.region_code }}
     steps:
       - name: Checkout caller release branch
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Checkout exact central workflow scripts
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: in2workspace/eudistack-devops-workflows
           ref: ${{ job.workflow_sha }}
@@ -491,12 +491,12 @@ jobs:
       MONITOR_MINUTES: ${{ inputs.production_monitor_minutes }}
     steps:
       - name: Checkout caller release branch
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Checkout exact central workflow scripts
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: in2workspace/eudistack-devops-workflows
           ref: ${{ job.workflow_sha }}
