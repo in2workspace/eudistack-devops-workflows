@@ -85,7 +85,6 @@ $DefaultRequiredSecrets = @{
         'AWS_ACCESS_KEY_ID_DEV'
         'AWS_ACCESS_KEY_ID_PRO'
         'AWS_ACCESS_KEY_ID_STG'
-        'AWS_ECR_REPOSITORY'
         'AWS_REGION'
         'AWS_SECRET_ACCESS_KEY_DEV'
         'AWS_SECRET_ACCESS_KEY_PRO'
