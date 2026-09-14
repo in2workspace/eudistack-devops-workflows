@@ -29,6 +29,11 @@ on:
         description: Base application URL scanned by ZAP
         required: true
         type: string
+      dast_start_script:
+        description: Optional repository-relative script that starts the DAST container
+        required: false
+        type: string
+        default: ''
     secrets:
       SONAR_TOKEN:
         description: SonarCloud authentication token
@@ -187,6 +192,12 @@ jobs:
       CONTAINER_NAME: ${{ inputs.container_name }}
       SMOKE_URL: ${{ inputs.smoke_url }}
       ZAP_TARGET_URL: ${{ inputs.zap_target_url }}
+      DAST_START_SCRIPT: ${{ inputs.dast_start_script }}
+      DAST_DB_HOST: localhost
+      DAST_DB_PORT: 5432
+      DAST_DB_NAME: eudistack
+      DAST_DB_USERNAME: eudistack
+      DAST_DB_PASSWORD: eudistack
     services:
       postgres:
         image: postgres:17-alpine
@@ -216,6 +227,16 @@ jobs:
               exit 1
             fi
           done
+          if [[ -n "${DAST_START_SCRIPT}" ]]; then
+            if [[ "${DAST_START_SCRIPT}" = /* || "${DAST_START_SCRIPT}" == *..* ]]; then
+              echo "::error::DAST_START_SCRIPT must be a repository-relative path without '..'."
+              exit 1
+            fi
+            if [[ ! -f "${DAST_START_SCRIPT}" ]]; then
+              echo "::error::DAST start script not found: ${DAST_START_SCRIPT}"
+              exit 1
+            fi
+          fi
 
       # SKIP_TESTS=true: the `build` job (above) already ran the full test suite
       # for the quality gate — re-running tests inside the Docker build here would
@@ -242,15 +263,19 @@ jobs:
 
       - name: Run container
         run: |
-          docker run -d --name "${CONTAINER_NAME}" \
-            --network host \
-            -e DB_HOST=localhost \
-            -e DB_PORT=5432 \
-            -e DB_NAME=eudistack \
-            -e DB_USERNAME=eudistack \
-            -e DB_PASSWORD=eudistack \
-            -e TRUST_FORWARDED_HOST=true \
-            "${CONTAINER_IMAGE}"
+          if [[ -n "${DAST_START_SCRIPT}" ]]; then
+            bash "${DAST_START_SCRIPT}"
+          else
+            docker run -d --name "${CONTAINER_NAME}" \
+              --network host \
+              -e DB_HOST="${DAST_DB_HOST}" \
+              -e DB_PORT="${DAST_DB_PORT}" \
+              -e DB_NAME="${DAST_DB_NAME}" \
+              -e DB_USERNAME="${DAST_DB_USERNAME}" \
+              -e DB_PASSWORD="${DAST_DB_PASSWORD}" \
+              -e TRUST_FORWARDED_HOST=true \
+              "${CONTAINER_IMAGE}"
+          fi
 
       # Polls the readiness group, not the aggregate /health: the aggregate
       # includes SmtpHealthIndicator, which reports DOWN whenever no SMTP
@@ -261,6 +286,19 @@ jobs:
       - name: Wait for service health
         run: |
           if ! bash "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/smoke-http.sh" "${SMOKE_URL}"; then
+            docker logs "${CONTAINER_NAME}"
+            exit 1
+          fi
+
+      - name: Verify ZAP target
+        run: |
+          status="$(curl --silent --show-error --output /tmp/zap-target \
+            --write-out '%{http_code}' \
+            --header 'X-Tenant: sandbox' \
+            "${ZAP_TARGET_URL}")"
+          if [[ "${status}" != "200" ]]; then
+            echo "::error::ZAP target returned HTTP ${status}; expected 200."
+            cat /tmp/zap-target
             docker logs "${CONTAINER_NAME}"
             exit 1
           fi

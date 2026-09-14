@@ -47,6 +47,16 @@ dependency-installation and SBOM commands.
 Repository-specific dispatchers, secrets, environments, license policy, and
 license exceptions remain in each application repository.
 
+The ECS API PR workflow provides a generic PostgreSQL-backed container startup.
+Applications that need framework-specific variables, mounted configuration, or
+other startup customization can set `dast_start_script` to a
+repository-relative Bash script. The workflow validates and executes the
+script with `CONTAINER_IMAGE`, `CONTAINER_NAME`, `DAST_DB_HOST`,
+`DAST_DB_PORT`, `DAST_DB_NAME`, `DAST_DB_USERNAME`, and `DAST_DB_PASSWORD`
+available in its environment. The script must start the named container in
+detached mode on the host network so the shared readiness and ZAP steps can
+inspect it.
+
 Call production-capable workflows using a full commit SHA:
 
 ```yaml
