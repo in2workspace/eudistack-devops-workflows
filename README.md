@@ -97,21 +97,23 @@ the application build retains its normal package version.
 
 Runtime values are rendered from `assets/env.template.js`. Placeholders may be
 `${NAME}`, `{{NAME}}`, or `__NAME__`; every name in
-`runtime_required_variables` must be present and used. Non-secret public URLs
-and identifiers can be passed in the appropriate `*_public_config_json` input.
-The standard `LOGS_ENABLED`, `WALLET_MODE`, and `PREFERRED_GRANT` values are
-read directly from each job's GitHub Environment variables and override the
-corresponding JSON values when configured.
-`WIA` and `WIA_INSTANCE_KEY_JWK` are protected Environment secrets. Their
-values are never written to logs or evidence. Evidence records only the
-SHA-256 of the rendered `assets/env.js`.
+`runtime_required_variables` must be present and used. Values are read from
+the GitHub Actions variables of the selected deployment environment. Callers
+may additionally pass non-secret values through the appropriate
+`*_public_config_json` input; explicit JSON takes precedence over environment
+variables. Any value rendered into a SPA is public to the browser and must not
+be stored as a GitHub secret. Evidence records only the SHA-256 of the rendered
+`assets/env.js`.
 
 Required caller configuration:
 
 - GitHub Environments: `dev`, protected `stg`, and protected `pro`.
 - Secrets: `SONAR_TOKEN`, environment-specific AWS access key and secret key,
-  `AWS_REGION`, `WIA`, and `WIA_INSTANCE_KEY_JWK`.
-- Public caller inputs: smoke URLs, PR ZAP URL, and runtime public JSON.
+  and `AWS_REGION`.
+- Public caller inputs: smoke URLs, PR ZAP URL, and optional runtime public
+  JSON. Required runtime placeholders are also resolved from GitHub Actions
+  variables in each deployment environment; explicit public JSON takes
+  precedence when both sources define the same name.
 - Resource inputs: `project_name`, `region_code`, and normally
   `spa_prefix: /wallet/`.
 

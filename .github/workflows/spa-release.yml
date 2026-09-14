@@ -48,7 +48,7 @@ on:
         description: Comma-separated env.template.js placeholder names
         required: false
         type: string
-        default: LOGS_ENABLED,WALLET_MODE,PREFERRED_GRANT,WIA,WIA_INSTANCE_KEY_JWK
+        default: ''
       staging_concurrency_group:
         description: Non-canceling staging deployment concurrency group
         required: false
@@ -110,10 +110,6 @@ on:
         required: true
       AWS_REGION:
         required: true
-      WIA:
-        required: false
-      WIA_INSTANCE_KEY_JWK:
-        required: false
 
 permissions:
   actions: read
@@ -348,23 +344,14 @@ jobs:
       - name: Render STG environment package
         id: package
         env:
-          WIA: ${{ secrets.WIA }}
-          WIA_INSTANCE_KEY_JWK: ${{ secrets.WIA_INSTANCE_KEY_JWK }}
-          LOGS_ENABLED: ${{ vars.LOGS_ENABLED }}
-          WALLET_MODE: ${{ vars.WALLET_MODE }}
-          PREFERRED_GRANT: ${{ vars.PREFERRED_GRANT }}
+          RUNTIME_ENVIRONMENT_CONFIG: ${{ toJSON(vars) }}
           RUNTIME_PUBLIC_CONFIG: ${{ inputs.staging_public_config_json }}
         run: |
           set -euo pipefail
           umask 077
           trap 'rm -f runtime-config.json' EXIT
-          jq --arg WIA "$WIA" --arg WIA_INSTANCE_KEY_JWK "$WIA_INSTANCE_KEY_JWK" \
-            --arg LOGS_ENABLED "$LOGS_ENABLED" --arg WALLET_MODE "$WALLET_MODE" \
-            --arg PREFERRED_GRANT "$PREFERRED_GRANT" \
-            '. + {WIA:$WIA,WIA_INSTANCE_KEY_JWK:$WIA_INSTANCE_KEY_JWK}
-             + (if $LOGS_ENABLED != "" then {LOGS_ENABLED:$LOGS_ENABLED} else {} end)
-             + (if $WALLET_MODE != "" then {WALLET_MODE:$WALLET_MODE} else {} end)
-             + (if $PREFERRED_GRANT != "" then {PREFERRED_GRANT:$PREFERRED_GRANT} else {} end)' \
+          jq --argjson RUNTIME_ENVIRONMENT_CONFIG "$RUNTIME_ENVIRONMENT_CONFIG" \
+            '$RUNTIME_ENVIRONMENT_CONFIG + .' \
             <<< "$RUNTIME_PUBLIC_CONFIG" > runtime-config.json
           bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/materialize-environment.sh" \
             spa-base.tar.gz base-manifest.json "$BASE_DIGEST" environment \
@@ -575,23 +562,14 @@ jobs:
       - name: Render PRO environment package
         id: package
         env:
-          WIA: ${{ secrets.WIA }}
-          WIA_INSTANCE_KEY_JWK: ${{ secrets.WIA_INSTANCE_KEY_JWK }}
-          LOGS_ENABLED: ${{ vars.LOGS_ENABLED }}
-          WALLET_MODE: ${{ vars.WALLET_MODE }}
-          PREFERRED_GRANT: ${{ vars.PREFERRED_GRANT }}
+          RUNTIME_ENVIRONMENT_CONFIG: ${{ toJSON(vars) }}
           RUNTIME_PUBLIC_CONFIG: ${{ inputs.production_public_config_json }}
         run: |
           set -euo pipefail
           umask 077
           trap 'rm -f runtime-config.json' EXIT
-          jq --arg WIA "$WIA" --arg WIA_INSTANCE_KEY_JWK "$WIA_INSTANCE_KEY_JWK" \
-            --arg LOGS_ENABLED "$LOGS_ENABLED" --arg WALLET_MODE "$WALLET_MODE" \
-            --arg PREFERRED_GRANT "$PREFERRED_GRANT" \
-            '. + {WIA:$WIA,WIA_INSTANCE_KEY_JWK:$WIA_INSTANCE_KEY_JWK}
-             + (if $LOGS_ENABLED != "" then {LOGS_ENABLED:$LOGS_ENABLED} else {} end)
-             + (if $WALLET_MODE != "" then {WALLET_MODE:$WALLET_MODE} else {} end)
-             + (if $PREFERRED_GRANT != "" then {PREFERRED_GRANT:$PREFERRED_GRANT} else {} end)' \
+          jq --argjson RUNTIME_ENVIRONMENT_CONFIG "$RUNTIME_ENVIRONMENT_CONFIG" \
+            '$RUNTIME_ENVIRONMENT_CONFIG + .' \
             <<< "$RUNTIME_PUBLIC_CONFIG" > runtime-config.json
           bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/materialize-environment.sh" \
             spa-base.tar.gz base-manifest.json "$BASE_DIGEST" environment \
