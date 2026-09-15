@@ -172,11 +172,6 @@ jobs:
             exit 1
           }
           VERSION="${GITHUB_REF_NAME#release/v}"
-          PACKAGE_VERSION="$(jq -r '.version // empty' package.json)"
-          [[ "$PACKAGE_VERSION" == "$VERSION" ]] || {
-            echo "::error::package.json version '${PACKAGE_VERSION}' must match release branch version '${VERSION}'."
-            exit 1
-          }
           if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "::error::Release v${VERSION} already exists; corrections require a new version."
             exit 1
@@ -599,8 +594,25 @@ jobs:
         id: previous
         run: bash "${EUDISTACK_DEVOPS_SPA_SCRIPTS}/s3-deployment.sh" inspect "$BUCKET" "$LIVE_PREFIX" deployment-state
 
-      - name: Enforce production release order
-        run: node "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/compare-release-version.mjs" "${{ steps.previous.outputs.version }}" "$VERSION" strict
+      - name: Enforce production release order and identity
+        env:
+          CURRENT_VERSION: ${{ steps.previous.outputs.version }}
+          CURRENT_PACKAGE_DIGEST: ${{ steps.previous.outputs.package_digest }}
+          EXPECTED_PACKAGE_DIGEST: ${{ steps.package.outputs.package_digest }}
+        run: |
+          set -euo pipefail
+          if [[ "$CURRENT_VERSION" == "$VERSION" ]]; then
+            if [[ "$CURRENT_PACKAGE_DIGEST" != "$EXPECTED_PACKAGE_DIGEST" ]]; then
+              echo "::error::Version ${VERSION} is already deployed with package digest ${CURRENT_PACKAGE_DIGEST}, not ${EXPECTED_PACKAGE_DIGEST}."
+              exit 1
+            fi
+            echo "Version ${VERSION} with the expected package digest is already deployed; resuming release finalization."
+          else
+            node "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/compare-release-version.mjs" \
+              "$CURRENT_VERSION" \
+              "$VERSION" \
+              strict
+          fi
 
       - name: Publish immutable PRO release
         id: published

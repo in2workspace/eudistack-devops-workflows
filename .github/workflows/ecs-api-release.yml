@@ -649,14 +649,25 @@ jobs:
             "${{ secrets.AWS_REGION }}" \
             current-production-task-definition.json
 
-      - name: Enforce production release order
+      - name: Enforce production release order and identity
         env:
           CURRENT_VERSION: ${{ steps.current-production.outputs.version }}
+          CURRENT_DIGEST: ${{ steps.current-production.outputs.observed_digest }}
+          EXPECTED_DIGEST: ${{ needs.build.outputs.digest }}
         run: |
-          node "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/compare-release-version.mjs" \
-            "${CURRENT_VERSION}" \
-            "${VERSION}" \
-            strict
+          set -euo pipefail
+          if [[ "$CURRENT_VERSION" == "$VERSION" ]]; then
+            if [[ "$CURRENT_DIGEST" != "$EXPECTED_DIGEST" ]]; then
+              echo "::error::Version ${VERSION} is already deployed with digest ${CURRENT_DIGEST}, not ${EXPECTED_DIGEST}."
+              exit 1
+            fi
+            echo "Version ${VERSION} with the expected image digest is already deployed; resuming release finalization."
+          else
+            node "${EUDISTACK_DEVOPS_COMMON_SCRIPTS}/compare-release-version.mjs" \
+              "$CURRENT_VERSION" \
+              "$VERSION" \
+              strict
+          fi
 
       - name: Promote validated digest
         env:

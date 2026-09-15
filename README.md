@@ -97,10 +97,9 @@ The build defaults match `eudistack-core-wallet-pwa`: Node 22/npm,
 paths, public smoke/ZAP URLs, concurrency groups, and runtime public values are
 typed reusable-workflow inputs. Lint is opt-in so repositories can migrate
 without converting pre-existing lint debt into a new deployment blocker. The
-release version is derived only from
-`release/vX.Y.Z`; `package.json` must contain the same version so package
-metadata, build metadata, the CycloneDX SBOM, and the GitHub Release cannot
-diverge.
+release version is derived only from `release/vX.Y.Z`. It is deliberately
+independent from `package.json` because the application package version and
+the delivery release version have separate lifecycles.
 `RELEASE_VERSION=X.Y.Z` is present for the production prebuild. DEV records
 `<package-version>+dev.<run-number>.<short-sha>` as deployment metadata while
 the application build retains its normal package version.
@@ -176,9 +175,10 @@ Release evidence schema v1 binds repository, version, source SHA, base
 manifest and archive digests, STG package and `env.js` digests, bucket,
 immutable/live prefixes, CloudFront invalidations, and smoke result. The base
 artifact and evidence are attested. Production validates both, requires a
-strictly newer version, and publishes final state and the GitHub Release only
-after successful monitoring. Manual fallback permits the same version only
-with the same base digest; an older version additionally requires
+newer version or an idempotent retry of the same version and exact deployed
+artifact, and publishes final state and the GitHub Release only after
+successful monitoring. Manual fallback permits the same version only with the
+same base digest; an older version additionally requires
 `allow_downgrade: true` and a non-empty reason.
 
 Minimum AWS IAM capabilities are scoped access to the named environment
