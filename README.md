@@ -57,6 +57,29 @@ available in its environment. The script must start the named container in
 detached mode on the host network so the shared readiness and ZAP steps can
 inspect it.
 
+### API GitHub Packages dependencies
+
+API Gradle builds (including CodeQL and license SBOM generation) receive
+`GITHUB_TOKEN`; `GITHUB_ACTOR` is already supplied by GitHub Actions. PR DAST,
+DEV, and release Docker builds also pass both values as build arguments, along
+with `SKIP_TESTS=true`. Consumer Dockerfiles must declare `ARG GITHUB_ACTOR`
+and `ARG GITHUB_TOKEN` in the stage that runs Gradle.
+
+These workflows request `packages: read`. Caller workflows must allow that
+permission too; reusable workflows cannot elevate the caller's permissions.
+The default token must have read access to the dependency package. For packages
+in another private repository, such as
+`in2workspace/eudistack-platform-audit-starter`, pass `PACKAGES_READ_TOKEN`
+as a reusable-workflow secret when the default token cannot access them. Use a
+classic PAT with `read:packages` whose owner has read access to the package
+repository (and authorize organization SSO if required). Pass this secret to
+each API, CodeQL, and license workflow call, explicitly or via `secrets: inherit`.
+
+Build arguments are not a secure secret transport: do not persist these
+credentials with Dockerfile `ENV`, copy them into the final image, or print
+them during the build. Prefer BuildKit secret mounts when consumer Dockerfiles
+can migrate away from the `ARG` contract.
+
 Call production-capable workflows using a full commit SHA:
 
 ```yaml

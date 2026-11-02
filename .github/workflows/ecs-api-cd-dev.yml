@@ -30,6 +30,9 @@ on:
         type: string
         default: '25'
     secrets:
+      PACKAGES_READ_TOKEN:
+        description: Optional classic PAT with read:packages access to dependency repositories
+        required: false
       SONAR_TOKEN:
         description: SonarCloud authentication token
         required: true
@@ -50,6 +53,7 @@ env:
 
 permissions:
   contents: read
+  packages: read
   id-token: write
   attestations: write
 
@@ -92,7 +96,7 @@ jobs:
 
       - name: Build, test and run SonarCloud
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: ./gradlew build sonar --info
 
@@ -142,7 +146,10 @@ jobs:
         with:
           context: .
           push: true
-          build-args: SKIP_TESTS=true
+          build-args: |
+            SKIP_TESTS=true
+            GITHUB_ACTOR=${{ github.actor }}
+            GITHUB_TOKEN=${{ secrets.PACKAGES_READ_TOKEN || github.token }}
           tags: ${{ steps.metadata.outputs.tags }}
           provenance: false
 

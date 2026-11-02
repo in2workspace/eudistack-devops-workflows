@@ -23,9 +23,14 @@ on:
         required: false
         type: string
         default: ./gradlew build -x test -x checkstyleMain -x checkstyleTest
+    secrets:
+      PACKAGES_READ_TOKEN:
+        description: Optional classic PAT with read:packages access to dependency repositories
+        required: false
 
 permissions:
   contents: read
+  packages: read
   security-events: write
 
 concurrency:
@@ -57,6 +62,8 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build
+        env:
+          GITHUB_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
         run: ${{ inputs.build_command }}
 
       - name: Perform CodeQL Analysis

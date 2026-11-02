@@ -33,9 +33,14 @@ on:
         required: false
         type: string
         default: build/reports/sbom/sbom.json
+    secrets:
+      PACKAGES_READ_TOKEN:
+        description: Optional classic PAT with read:packages access to dependency repositories
+        required: false
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -75,6 +80,8 @@ jobs:
         run: ${{ inputs.install_command }}
 
       - name: Generate CycloneDX SBOM
+        env:
+          GITHUB_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
         run: ${{ inputs.sbom_command }}
 
       - name: Evaluate licenses

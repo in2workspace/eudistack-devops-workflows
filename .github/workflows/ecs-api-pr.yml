@@ -35,6 +35,9 @@ on:
         type: string
         default: ''
     secrets:
+      PACKAGES_READ_TOKEN:
+        description: Optional classic PAT with read:packages access to dependency repositories
+        required: false
       SONAR_TOKEN:
         description: SonarCloud authentication token
         required: true
@@ -45,6 +48,7 @@ env:
 
 permissions:
   contents: read
+  packages: read
   checks: write
   pull-requests: write
 
@@ -97,7 +101,7 @@ jobs:
 
       - name: Build, test and run SonarCloud
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: ./gradlew build sonar --info
 
@@ -243,7 +247,14 @@ jobs:
       # duplicate that work and risks failing this job on a test issue unrelated
       # to DAST (e.g. a test needing infra this container's build stage lacks).
       - name: Build Docker image
-        run: docker build --build-arg SKIP_TESTS=true -t "${CONTAINER_IMAGE}" .
+        env:
+          GITHUB_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
+        run: |
+          docker build \
+            --build-arg SKIP_TESTS=true \
+            --build-arg GITHUB_ACTOR \
+            --build-arg GITHUB_TOKEN \
+            -t "${CONTAINER_IMAGE}" .
 
       - name: Seed tenant_registry (sandbox)
         run: |
