@@ -3,6 +3,11 @@ name: spa-pr
 on:
   workflow_call:
     inputs:
+      sonar_enabled:
+        description: Run the SonarCloud scan and quality gate. Private repos without a SonarCloud plan set it to false.
+        type: boolean
+        required: false
+        default: true
       node_version:
         description: Node.js version
         required: false
@@ -61,7 +66,7 @@ on:
     secrets:
       SONAR_TOKEN:
         description: SonarCloud authentication token
-        required: true
+        required: false
 
 permissions:
   contents: read
@@ -130,12 +135,14 @@ jobs:
         run: ${{ inputs.build_command }}
 
       - name: Run Sonar scan
+        if: ${{ inputs.sonar_enabled }}
         uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: SonarCloud quality gate
+        if: ${{ inputs.sonar_enabled }}
         uses: sonarsource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1.2.1
         timeout-minutes: 5
         env:
